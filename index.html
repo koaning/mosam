@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        .container {
+            position: relative;
+            margin: 20px;
+        }
+        .toolbar {
+            margin-bottom: 10px;
+        }
+        .image-container {
+            position: relative;
+            display: inline-block;
+            user-select: none;
+        }
+        .image-container img {
+            pointer-events: none;
+        }
+        .bounding-box {
+            position: absolute;
+            border: 2px solid;
+            cursor: move;
+        }
+        .bounding-box.selected {
+            border-width: 4px;
+        }
+        .resize-handle {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border: 1px solid black;
+            position: absolute;
+        }
+        .resize-handle.nw { top: -4px; left: -4px; cursor: nw-resize; }
+        .resize-handle.ne { top: -4px; right: -4px; cursor: ne-resize; }
+        .resize-handle.sw { bottom: -4px; left: -4px; cursor: sw-resize; }
+        .resize-handle.se { bottom: -4px; right: -4px; cursor: se-resize; }
+        .delete-btn {
+            position: absolute;
+            top: -20px;
+            right: 0;
+            background: red;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 6px;
+        }
+        .class-btn { 
+            margin-left: 5px;
+            padding: 5px 10px;
+        }
+        .class-btn.active {
+            outline: 2px solid #000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="toolbar">
+            <div id="classButtons" style="display: inline-block;"></div>
+            <button onclick="logAnnotations()">Log Annotations</button>
+        </div>
+        <div class="image-container">
+            <img src="/api/placeholder/800/600" alt="Placeholder" id="image">
+        </div>
+    </div>
+
+    <script>
+        const classes = [
+            { name: 'Person', color: '#FF0000' },
+            { name: 'Car', color: '#00FF00' },
+            { name: 'Animal', color: '#0000FF' }
+        ];
+        let selectedClass = classes[0];
+        let isDrawing = false;
+        let isDragging = false;
+        let startX, startY;
+        let activeBox = null;
+        let resizing = false;
+        let boxes = [];
+
+        const imageContainer = document.querySelector('.image-container');
+
+        function initClassButtons() {
+            const buttonContainer = document.getElementById('classButtons');
+            classes.forEach(cls => {
+                const btn = document.createElement('button');
+                btn.textContent = cls.name;
+                btn.className = 'class-btn';
+                btn.onclick = () => selectClass(cls);
+                buttonContainer.appendChild(btn);
+            });
+            selectClass(classes[0]);
+        }
+
+        function selectClass(cls) {
+            selectedClass = cls;
+            document.querySelectorAll('.class-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent === cls.name) {
+                    btn.classList.add('active');
+                }
+            });
+        }
+
+        function createBox(x, y, width, height) {
+            const box = document.createElement('div');
+            box.className = 'bounding-box';
+            box.style.left = x + 'px';
+            box.style.top = y + 'px';
+            box.style.width = width + 'px';
+            box.style.height = height + 'px';
+            box.style.borderColor = selectedClass.color;
+            
+            ['nw', 'ne', 'sw', 'se'].forEach(pos => {
+                const handle = document.createElement('div');
+                handle.className = `resize-handle ${pos}`;
+                box.appendChild(handle);
+            });
+
+            const label = document.createElement('span');
+            label.style.position = 'absolute';
+            label.style.top = '-20px';
+            label.style.left = '0';
+            label.style.color = selectedClass.color;
+            label.textContent = selectedClass.name;
+            box.appendChild(label);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'delete-btn';
+            deleteBtn.textContent = '×';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                box.remove();
+                boxes = boxes.filter(b => b.element !== box);
+            };
+            box.appendChild(deleteBtn);
+
+            box.addEventListener('mousedown', (e) => {
+                if (e.target.classList.contains('resize-handle')) {
+                    resizing = e.target.classList[1];
+                    setActiveBox(box);
+                    e.stopPropagation();
+                    return;
+                }
+                if (e.target === deleteBtn) return;
+                
+                setActiveBox(box);
+                isDragging = true;
+                const rect = box.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                startY = e.clientY - rect.top;
+                e.stopPropagation();
+            });
+
+            imageContainer.appendChild(box);
+            boxes.push({
+                element: box,
+                class: selectedClass.name
+            });
+            return box;
+        }
+
+        function setActiveBox(box) {
+            boxes.forEach(b => b.element.classList.remove('selected'));
+            activeBox = box;
+            if (box) box.classList.add('selected');
+        }
+
+        imageContainer.addEventListener('mousedown', (e) => {
+            if (e.target === imageContainer) {
+                isDrawing = true;
+                setActiveBox(null);
+                const rect = imageContainer.getBoundingClientRect();
+                startX = e.clientX - rect.left;
+                startY = e.clientY - rect.top;
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDrawing) {
+                const rect = imageContainer.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                
+                const width = Math.abs(currentX - startX);
+                const height = Math.abs(currentY - startY);
+                const x = Math.min(currentX, startX);
+                const y = Math.min(currentY, startY);
+
+                if (!activeBox && (width > 5 || height > 5)) {
+                    activeBox = createBox(x, y, width, height);
+                    setActiveBox(activeBox);
+                } else if (activeBox && isDrawing) {
+                    activeBox.style.width = width + 'px';
+                    activeBox.style.height = height + 'px';
+                    activeBox.style.left = x + 'px';
+                    activeBox.style.top = y + 'px';
+                }
+            } else if (activeBox && !resizing && isDragging) {
+                const rect = imageContainer.getBoundingClientRect();
+                const x = e.clientX - rect.left - startX;
+                const y = e.clientY - rect.top - startY;
+                if (x >= 0 && y >= 0) {
+                    activeBox.style.left = x + 'px';
+                    activeBox.style.top = y + 'px';
+                }
+            } else if (activeBox && resizing) {
+                const rect = imageContainer.getBoundingClientRect();
+                const currentX = e.clientX - rect.left;
+                const currentY = e.clientY - rect.top;
+                const boxRect = activeBox.getBoundingClientRect();
+                const containerRect = imageContainer.getBoundingClientRect();
+
+                let newLeft = boxRect.left - containerRect.left;
+                let newTop = boxRect.top - containerRect.top;
+                let newWidth = boxRect.width;
+                let newHeight = boxRect.height;
+
+                switch (resizing) {
+                    case 'se':
+                        newWidth = currentX - boxRect.left + containerRect.left;
+                        newHeight = currentY - boxRect.top + containerRect.top;
+                        break;
+                    case 'sw':
+                        newWidth = boxRect.right - currentX - containerRect.left;
+                        newHeight = currentY - boxRect.top + containerRect.top;
+                        newLeft = currentX - containerRect.left;
+                        break;
+                    case 'ne':
+                        newWidth = currentX - boxRect.left + containerRect.left;
+                        newHeight = boxRect.bottom - currentY - containerRect.top;
+                        newTop = currentY - containerRect.top;
+                        break;
+                    case 'nw':
+                        newWidth = boxRect.right - currentX - containerRect.left;
+                        newHeight = boxRect.bottom - currentY - containerRect.top;
+                        newLeft = currentX - containerRect.left;
+                        newTop = currentY - containerRect.top;
+                        break;
+                }
+
+                if (newWidth > 10 && newHeight > 10) {
+                    activeBox.style.width = newWidth + 'px';
+                    activeBox.style.height = newHeight + 'px';
+                    activeBox.style.left = newLeft + 'px';
+                    activeBox.style.top = newTop + 'px';
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isDrawing) {
+                const width = parseInt(activeBox?.style.width || 0);
+                const height = parseInt(activeBox?.style.height || 0);
+                if (width < 5 || height < 5) {
+                    activeBox?.remove();
+                    boxes = boxes.filter(b => b.element !== activeBox);
+                }
+                setActiveBox(null);
+            }
+            isDrawing = false;
+            isDragging = false;
+            resizing = false;
+        });
+
+        function logAnnotations() {
+            const annotations = boxes.map(box => {
+                return {
+                    class: box.class,
+                    x: box.element.offsetLeft,
+                    y: box.element.offsetTop,
+                    width: parseInt(box.element.style.width),
+                    height: parseInt(box.element.style.height)
+                };
+            });
+            console.log(JSON.stringify(annotations, null, 2));
+        }
+
+        initClassButtons();
+    </script>
+</body>
+</html>
